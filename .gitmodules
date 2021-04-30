@@ -1,0 +1,11 @@
+[submodule "marcos_client"]
+	path = marcos_client
+	branch = flocra_devel
+	url = https://github.com/stockmann-lab/marcos_client.git
+[submodule "marcos_extras"]
+	path = marcos_extras
+	branch=flocra
+	url = https://github.com/stockmann-lab/marcos_extras.git
+[submodule "flocra-pulseq"]
+	path = flocra-pulseq
+	url = https://github.com/stockmann-lab/flocra-pulseq.git
