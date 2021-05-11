@@ -1,6 +1,10 @@
 data/*
 !data/.gitkeep
-local_test/*
+scripts/*
+!scripts/.gitkeep
+logs/*
+!logs/.gitkeep
+ISMRM21_demo/*
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

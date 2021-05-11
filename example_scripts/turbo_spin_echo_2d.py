@@ -6,8 +6,10 @@ import matplotlib.pyplot as plt
 import sys
 import os
 sys.path.append(os.path.abspath("../marcos_client"))
+sys.path.append(os.path.abspath("../config"))
+import scanner_config as sc # pylint: disable=import-error
 
-from examples import turbo_spin_echo
+from examples import turbo_spin_echo # pylint: disable=import-error
 
 if __name__ == "__main__":
 

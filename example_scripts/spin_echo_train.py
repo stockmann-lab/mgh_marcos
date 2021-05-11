@@ -6,17 +6,19 @@ import matplotlib.pyplot as plt
 import sys
 import os
 sys.path.append(os.path.abspath("../marcos_client"))
+sys.path.append(os.path.abspath("../config"))
+import scanner_config as sc # pylint: disable=import-error
 
-from examples import spin_echo_train
+from examples import spin_echo_train # pylint: disable=import-error
 
 if __name__ == "__main__":
 
     # Change these variables to get a good spin echo
-    larmor_freq=15.454 # [MHz] Scanner larmor frequency, will need to change for drift
+    larmor_freq=15.44364 # [MHz] Scanner larmor frequency, will need to change for drift
     rf_scaling=0.48 # [Arbitrary] RF power, higher for more power
     echo_count=4 # Echoes per train
     rx_period=25/3 # [us] Receive period
-    echo_duration=5000 # [us]
+    echo_duration=9000 # [us]
     readout_duration=2500 # [us]
 
     # Run the experiment, hardcoded from marcos_client/examples
@@ -33,6 +35,8 @@ if __name__ == "__main__":
     rx_arr = np.reshape(rxd, (echo_count, -1)).T
     rx_fft = np.fft.fftshift(np.fft.fft(rx_arr, axis=0), axes=(0,))
 
+    fft_bw = 1/(rx_period)
+    fft_x = np.linspace(larmor_freq - fft_bw/2, larmor_freq + fft_bw/2, num=rx_fft.shape[0])
 
     fig, axs = plt.subplots(4, 1, constrained_layout=True)
     axs[0].plot(np.real(rxd))
@@ -41,6 +45,6 @@ if __name__ == "__main__":
     axs[1].set_title('Concatenated signal -- Magnitude')
     axs[2].plot(np.angle(rx_arr))
     axs[2].set_title('Stacked signals -- Phase')
-    axs[3].plot(np.abs(rx_fft))
+    axs[3].plot(fft_x, np.abs(rx_fft))
     axs[3].set_title('Stacked signals -- FFT')
     plt.show()
