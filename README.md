@@ -3,9 +3,9 @@
 ## Git installation
 This repo uses submodules ([details](https://git-scm.com/book/en/v2/Git-Tools-Submodules))
 
-Run `git submodule init` and `git submodule update --remote` to clone submodules and checkout the right branch for the first time.
+Run `git submodule init` and `git submodule update --remote --merge` to clone submodules and checkout the right branch for the first time.
 
-Updating submodules is complicated -- I'll update how to do this with a good set of instructions later.
+To update submodules, run `git submodule update --remote --merge`.
 
 ## System setup
 In `marcos_client/`, duplicate `local_config.py.example` and uncomment the lines that match your system. Rename the file `local_config.py`.
