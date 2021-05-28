@@ -1,13 +1,16 @@
+LOCAL*
+
 data/*
 !data/.gitkeep
-scripts/*
-!scripts/.gitkeep
+seq_files/*
+!seq_files/.gitkeep
 logs/*
 !logs/.gitkeep
-ISMRM21_demo/*
+mgh/config.py
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
+*/__pycache__/
 *.py[cod]
 *$py.class
 
