@@ -14,7 +14,7 @@ In `mgh/`, duplicate `config.py.example` and enter system maximum values you fee
 
 Install packages in development mode (edits to the files change the installed code) by running `pip install -e .` both in the main repo folder and in `flocra-pulseq`.
 
-To calibrate system values, there are calibration functions in `mgh.calibration`. To run a pulseq file, use `mgh.run_pulseq`
+To calibrate system values, there are calibration functions in `mgh.calibration`. To run a pulseq file, use `mgh.run_pulseq/`. From there, you can use `flocra_pulseq.interpreter` and modules in the `mgh` and `marcos_client` packages. 
 
 ## TODO:
 
