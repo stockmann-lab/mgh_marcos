@@ -14,9 +14,6 @@ In `mgh/`, duplicate `config.py.example` and enter system maximum values you fee
 
 Install packages in development mode (edits to the files change the installed code) by running `pip install -e .` both in the main repo folder and in `flocra-pulseq`.
 
+In `marcos_extras`, run `setup_marcos.sh` from the command line with your Red Pitaya IP and version (for example: `./marcos_setup.sh 192.168.1.163 rp-122`). FLOCRA currently only works with RP-122. For more info on setting up marcos, you can look at this more in-depth [wiki](https://github.com/vnegnev/marcos_extras/wiki/setting_marcos_up).
+
 To calibrate system values, there are calibration functions in `mgh.calibration`. To run a pulseq file, use `mgh.run_pulseq/`. From there, you can use `flocra_pulseq.interpreter` and modules in the `mgh` and `marcos_client` packages. 
-
-## TODO:
-
-- test it all!
-- write tests to test it all!
