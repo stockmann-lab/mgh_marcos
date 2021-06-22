@@ -1,9 +1,9 @@
-LARMOR_FREQ = 15.434717
-RF_MAX = 7340
+LARMOR_FREQ = 15.434717 # System Larmor Frequency, in MHz
+RF_MAX = 7340 # System maximum RF amplitude, in Hz
 
-GX_MAX = 9.5e6
-GY_MAX = 11.5e6
-GZ_MAX = 10e6
+GX_MAX = 9.5e6 # System maximum X gradient strength, in Hz/m
+GY_MAX = 11.5e6 # System maximum Y gradient strength, in Hz/m
+GZ_MAX = 10e6 # System maximum Z gradient strength, in Hz/m
 
 SHIM_X = 0
 SHIM_Y = 0
