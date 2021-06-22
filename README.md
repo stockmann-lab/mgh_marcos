@@ -8,7 +8,7 @@ Run `git submodule init` and `git pull --recurse-submodules` to clone submodules
 To update submodules, run `git submodule update --remote --merge`.
 
 ## System setup
-In `marcos_client/`, duplicate `local_config.py.example` and uncomment the lines that match your system. Rename the file `local_config.py`.
+In `marcos_client/`, duplicate `local_config.py.example`. Uncomment and edit your IP Address, your gradient board, and your system -- for FLOCRA, you'll need an RP-122. Rename the file `local_config.py`.
 
 In `mgh/`, duplicate `config.py.example` and enter system maximum values you feel safe testing. Rename the file `config.py`.
 
