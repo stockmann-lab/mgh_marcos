@@ -3,7 +3,7 @@
 ## Git installation
 This repo uses submodules ([details](https://git-scm.com/book/en/v2/Git-Tools-Submodules))
 
-Run `git submodule init` and `git submodule update --remote --merge` to clone submodules and checkout the right branch for the first time.
+Run `git submodule init` and `git pull --recurse-submodules` to clone submodules and checkout the right branch for the first time.
 
 To update submodules, run `git submodule update --remote --merge`.
 
