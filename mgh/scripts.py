@@ -112,7 +112,7 @@ def shim(instructions, shim):
         instructions[grads[ch]] = (instructions[grads[ch]][0], updates)
     return instructions
 
-def plot_signal_1d(rxd, trs, rx_period, larmor_freq=cfg.LARMOR_FREQ, peak_width=False):
+def plot_signal_1d(rxd, trs, rx_period, larmor_freq=cfg.LARMOR_FREQ):
     # Split echos for FFT
     rx_arr = np.reshape(rxd, (trs, -1)).T
     rx_fft = np.fft.fftshift(np.fft.fft(np.fft.fftshift(rx_arr, axes=(0,)), axis=0), axes=(0,))
@@ -143,7 +143,7 @@ def plot_signal_1d(rxd, trs, rx_period, larmor_freq=cfg.LARMOR_FREQ, peak_width=
     #     axs[3].set_title('Stacked signals -- FFT')
     plt.show()
 
-def plot_signal_2d(rxd, trs, rx_period, larmor_freq=cfg.LARMOR_FREQ, averages=1, raw=False):
+def plot_signal_2d(rxd, trs, raw=False):
     rx_arr = np.reshape(rxd, (trs, -1))
     rx_fft = np.fft.fftshift(np.fft.fft2(np.fft.fftshift(rx_arr)))
 
@@ -165,7 +165,7 @@ def plot_signal_2d(rxd, trs, rx_period, larmor_freq=cfg.LARMOR_FREQ, averages=1,
     im_axs[1].set_title('Phase')
     plt.show()
 
-def plot_sinogram_2d(rxd, trs, rx_period, larmor_freq=cfg.LARMOR_FREQ, averages=1):
+def plot_sinogram_2d(rxd, trs):
     rx_arr = np.reshape(rxd, (trs, -1)).T
     rx_fft = np.fft.fftshift(np.fft.fft(np.fft.fftshift(rx_arr, axes=(0,)), axis=0), axes=(0,))
 
