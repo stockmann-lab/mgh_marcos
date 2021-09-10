@@ -143,7 +143,7 @@ def plot_signal_1d(rxd, trs, rx_period, larmor_freq=cfg.LARMOR_FREQ):
     #     axs[3].set_title('Stacked signals -- FFT')
     plt.show()
 
-def plot_signal_2d(rxd, trs, raw=False):
+def plot_signal_2d(rxd, trs, rx_t, raw=False):
     rx_arr = np.reshape(rxd, (trs, -1))
     rx_fft = np.fft.fftshift(np.fft.fft2(np.fft.fftshift(rx_arr)))
 
@@ -185,15 +185,11 @@ if __name__ == "__main__":
     # Maybe clean up
     trs = 128
     if len(sys.argv) == 3:
-        seq_file = '../ISMRM21_demo/' + sys.argv[1]
+        seq_file = cfg.SEQ_PATH + sys.argv[1]
         dimension = int(sys.argv[2])
-    elif len(sys.argv) == 4:
-        seq_file = '../ISMRM21_demo/' + sys.argv[1]
-        dimension = int(sys.argv[2])
-        trs = int(sys.argv[3])
     else:
-        seq_file = '../ISMRM21_demo/radial_test_LCB_3.seq'
-        dimension = 2
+        seq_file = cfg.SEQ_PATH + 'se.seq'
+        dimension = 1
     print(f'Running {seq_file}')
     rxd, rx_t = run_pulseq(seq_file, save_np=True, save_mat=True)
     if dimension == 1:

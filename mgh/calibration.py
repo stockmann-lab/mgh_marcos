@@ -1,25 +1,78 @@
 #!/usr/bin/env python3
 
+from os import device_encoding
 import numpy as np
 import matplotlib.pyplot as plt
+import scipy.signal as sig
 import time
 
 import sys
 
 import mgh.config as cfg # pylint: disable=import-error
+import marcos_client.experiment as ex # pylint: disable=import-error
+from marcos_client.examples import trap_cent # pylint: disable=import-error
 from mgh.scripts import run_pulseq # pylint: disable=import-error
 
-def larmor_cal(larmor_start=cfg.LARMOR_FREQ, iterations=10,
- step_size=0.6, plot=False, shim_x=cfg.SHIM_X, shim_y=cfg.SHIM_Y, shim_z=cfg.SHIM_Z,):
+
+def larmor_step_search(step_search_center=cfg.LARMOR_FREQ, steps=15, step_bw_MHz=5e-3, plot=False, 
+    shim_x=cfg.SHIM_X, shim_y=cfg.SHIM_Y, shim_z=cfg.SHIM_Z, delay_s=1):
+
+    swept_freqs = np.linspace(step_search_center - ((steps-1)/2 * step_bw_MHz),
+                     step_search_center + ((steps-1)/2 * step_bw_MHz), num=steps)
+    larmor_freq = swept_freqs[0]
+    seq_file = cfg.MGH_PATH + 'cal_seq_files/se_1.seq'
+
+    # Run the experiment once to prep array
+    rxd, rx_t = run_pulseq(seq_file, rf_center=larmor_freq,
+            tx_t=1, grad_t=10, tx_warmup=100,
+            shim_x=shim_x, shim_y=shim_y, shim_z=shim_z,
+            grad_cal=False, save_np=False, save_mat=False, save_msgs=False)
+
+    rx_arr = np.zeros((rxd.shape[0], steps), dtype=np.cdouble)
+    rx_arr[:,0] = rxd
+
+    time.sleep(delay_s)
+
+    for i in range(1, steps):
+        rx_arr[:,i], _ = run_pulseq(seq_file, rf_center=swept_freqs[i],
+            tx_t=1, grad_t=10, tx_warmup=100,
+            shim_x=shim_x, shim_y=shim_y, shim_z=shim_z,
+            grad_cal=False, save_np=False, save_mat=False, save_msgs=False)
+
+        time.sleep(delay_s)
+
+    max_ind = np.argmax(np.max(np.abs(rx_arr), axis=0, keepdims=False))
+    max_freq = swept_freqs[max_ind]
+    print(f'{max_freq:.4f} MHz')
+
+    
+    if plot:
+        fig, axs = plt.subplots(2, 1, constrained_layout=True)
+        fig.suptitle(f'{steps}-step search around {step_search_center:.4f} MHz')
+        axs[0].plot(np.real(rx_arr))
+        axs[0].legend([f'{freq:.4f} MHz' for freq in swept_freqs])
+        axs[0].set_title('Concatenated signal -- Real')
+        axs[1].plot(np.abs(rx_arr))
+        axs[1].set_title('Concatenated signal -- Magnitude')
+        plt.show()
+
+    return max_freq
+
+def larmor_cal(larmor_start=cfg.LARMOR_FREQ, iterations=10, delay_s=1, echo_count=2,
+    step_size=0.6, plot=False, shim_x=cfg.SHIM_X, shim_y=cfg.SHIM_Y, shim_z=cfg.SHIM_Z):
 
     larmor_freq = larmor_start
-    seq_file = cfg.MGH_PATH + 'cal_seq_files/se.seq'
-    echo_count = 1
+
+    if echo_count not in {1, 2, 3, 4, 5, 6}:
+        print('Echo count needs to be an integer between 1 and 6')
+        return -1
+    
+    seq_file = cfg.MGH_PATH + f'cal_seq_files/se_{echo_count}.seq'
 
     for i in range(iterations):
         print(f'Iteration {i + 1}/{iterations}: {larmor_freq:.5f} MHz')
  
-        # Run the experiment, hardcoded from marcos_client/examples
+        # Run the experiment from seq file
         rxd, rx_t = run_pulseq(seq_file, rf_center=larmor_freq,
                 tx_t=1, grad_t=10, tx_warmup=100,
                 shim_x=shim_x, shim_y=shim_y, shim_z=shim_z,
@@ -47,7 +100,7 @@ def larmor_cal(larmor_start=cfg.LARMOR_FREQ, iterations=10,
 
         larmor_freq += dw * step_size
 
-        time.sleep(1)
+        time.sleep(delay_s)
 
     # Run once more to check final frequency
     rxd, rx_t = run_pulseq(seq_file, rf_center=larmor_freq,
@@ -69,30 +122,41 @@ def larmor_cal(larmor_start=cfg.LARMOR_FREQ, iterations=10,
 
     if plot:
         fig, axs = plt.subplots(5, 1, constrained_layout=True)
+
         if std < 1:
             fig.suptitle(f'Larmor: {larmor_freq:.4f} MHz')
         else:
             fig.suptitle(f"Didn't converge -- Try eyeballing from bottom graph")
+
         axs[0].plot(np.real(rxd))
         axs[0].set_title('Concatenated signal -- Real')
+
         axs[1].plot(np.abs(rxd))
         axs[1].set_title('Concatenated signal -- Magnitude')
-        axs[2].plot(np.angle(rx_arr))
+        axs[1].sharex(axs[0])
+        axs[1].set_xlabel('Samples')
+
+        axs[2].plot(np.arange(0, rx_arr.shape[0]) * rx_t, np.angle(rx_arr))
         axs[2].set_title('Stacked signals -- Phase')
+        axs[2].set_xlabel('Time (us)')
+
         axs[3].plot(fft_x, np.abs(rx_fft))
         axs[3].set_title('Stacked signals -- FFT')
+
         axs[4].plot(fft_x, np.mean(np.abs(rx_fft), axis=1, keepdims=False))
         axs[4].set_title('Averaged signals -- FFT')
+        axs[4].sharex(axs[3])
+        axs[4].set_xlabel('Frequency (MHz)')
         plt.show()
 
     return larmor_freq
 
-def rf_max_cal(larmor_freq=cfg.LARMOR_FREQ, tr_spacing=2e6, echo_duration=5000, 
-                 readout_duration=500, rx_period=25/3,
-                 rf_pi2_duration=50, rf_max=cfg.RF_MAX,
-                 plot=True, points=11, iterations=6, focus_factor=1.5):
+# TODO document
+def rf_max_cal(larmor_freq=cfg.LARMOR_FREQ, points=20, iterations=2, focus_factor=2, 
+    shim_x=cfg.SHIM_X, shim_y=cfg.SHIM_Y, shim_z=cfg.SHIM_Z,
+    plot=True, tr_spacing=2, force_tr=False, first_max=False, smooth=True):
     """
-    Calibrate gradient maximum using a phantom of known width
+    Calibrate RF maximum for pi/2 flip angle
 
     Args:
         larmor_freq (float): [MHz] Scanner larmor frequency
@@ -100,7 +164,6 @@ def rf_max_cal(larmor_freq=cfg.LARMOR_FREQ, tr_spacing=2e6, echo_duration=5000,
         echo_duration (float): [us] Time between echo peaks
         readout_duration (float): [us] Readout window around echo peak
         rx_period (float): [us] Readout dwell time
-        rf_pi2_duration (float): [us] RF pi/2 pulse duration
         rf_max (float): [Hz] System RF max
         plot (bool): Default True, plot final data
         points (int): Points to plot per iteration
@@ -110,55 +173,140 @@ def rf_max_cal(larmor_freq=cfg.LARMOR_FREQ, tr_spacing=2e6, echo_duration=5000,
     Returns:
         float: Estimated RF max in Hz
     """
+    seq_file = cfg.MGH_PATH + f'cal_seq_files/se_2.seq'
+    RF_PI2_DURATION = 50 # us, hardcoded from sequence
+
+    if (tr_spacing >= 30) and not force_tr:
+        print('TR spacing is over 30 seconds! Set "force_tr" to True if this isn\'t a mistake. ')
+        return -1
+
     assert(focus_factor > 1)
-    from marcos_client.examples import spin_echo_train
 
     # Run the experiment, hardcoded from marcos_client/examples
-    rf_min, rf_max = 0, 1
+    rf_min, rf_max = 0.05, 0.95
     rf_max_val = 0
     for it in range(iterations):
         rf_amp_vals = np.linspace(rf_min, rf_max, num=points, endpoint=True)
         rxd_list = []
+        print(f'Iteration {it + 1}/{iterations}: {points} points from {rf_min:.2f} to {rf_max:.2f} fractional RF power')
+
         for i in range(points):
-            rxd_list.append(spin_echo_train(
-                larmor_freq=larmor_freq,
-                rf_scaling=rf_amp_vals[i],
-                echo_count=2,
-                rx_period=rx_period,
-                echo_duration=echo_duration,
-                readout_duration=readout_duration,
-                rf_pi2_duration=rf_pi2_duration
-                ))
+            # Run the experiment from seq file
+            adj_rf_max = max(cfg.RF_MAX * cfg.RF_PI2_FRACTION, 5000) / rf_amp_vals[i]
+            rxd_list.append(run_pulseq(seq_file, rf_center=larmor_freq,
+                tx_t=1, grad_t=10, tx_warmup=100,
+                shim_x=shim_x, shim_y=shim_y, shim_z=shim_z, rf_max=adj_rf_max,
+                grad_cal=False, save_np=False, save_mat=False, save_msgs=False)[0])
             time.sleep(tr_spacing)
+            if (i + 1) % 5 == 0:
+                print(f'Finished point {i + 1}/{points}...')
+
         
         rx_arr = np.reshape(rxd_list, (points, 2, -1))[:, 1, :]
         peak_max_arr = np.max(np.abs(rx_arr), axis=1, keepdims=False)
-        rf_max_val = rf_amp_vals[np.argmax(peak_max_arr)]
+        if smooth:
+            peak_max_arr = np.convolve(np.hstack((peak_max_arr[0:1], peak_max_arr[0:1], 
+                                        peak_max_arr, peak_max_arr[-1:], peak_max_arr[-1:])),
+                            [1/3, 1/3, 1/3])[3:-3]
+        dec_inds = np.where(peak_max_arr[:-1] >= peak_max_arr[1:])[0]
+        if first_max and len(dec_inds) > 0:
+            max_ind = dec_inds[0]
+        else:
+            max_ind = np.argmax(peak_max_arr)
 
-        if plot:
+        rf_max_val = rf_amp_vals[max_ind]
+
+        if plot and it < iterations - 1:
             fig, axs = plt.subplots(2, 1, constrained_layout=True)
             fig.suptitle(f'Iteration {it + 1}/{iterations}')
             axs[0].plot(np.abs(rx_arr).T)
             axs[0].set_title('Stacked signals -- Magnitude')
             axs[1].plot(rf_amp_vals, peak_max_arr)
-            axs[1].set_title(f'Maximum signals -- max at {rf_max_val}')
+            axs[1].plot(rf_max_val, peak_max_arr[max_ind], 'x')
+            if first_max:
+                axs[1].set_title(f'Max signals -- first max at {rf_max_val:.4f}')
+            else:
+                axs[1].set_title(f'Max signals -- global max at {rf_max_val:.4f}')
             plt.ion()
             plt.show()
             plt.draw()
             plt.pause(0.001)
-        print(f'Iteration {it + 1}/{iterations} --- Max: {np.max(peak_max_arr)} at {rf_max_val:.4f}')
-        rf_min = max(0, rf_max_val - focus_factor**(-1 * it - 2))
-        rf_max = min(1, rf_max_val + focus_factor**(-1 * it - 2))
-        if plot: plt.ioff()
 
-    print(f'{rf_pi2_duration}us pulse, 90 degree maxed at {rf_max_val:.4f}')
-    print(f'Estimated RF max: {0.25 / (rf_pi2_duration * rf_max_val) * 1e6:.2f} Hz')
-    return 0.25 / (rf_pi2_duration * rf_max_val) * 1e6
+        rf_min = max(0.05, rf_max_val - focus_factor**(-1 * (it + 1))/2)
+        rf_max = min(0.95, rf_max_val + focus_factor**(-1 * (it + 1))/2)
 
-def grad_max_cal(phantom_width=10, larmor_freq=cfg.LARMOR_FREQ, calibration_power=0.8,
-                 trs=2, tr_spacing=2e6, echo_duration=5000, 
-                 readout_duration=500, rx_period=25/3, gradient_overshoot=100,
-                 rf_pi2_duration=50, rf_max=cfg.RF_MAX,
+    est_rf_max = 0.25 / (RF_PI2_DURATION * rf_max_val) * 1e6
+
+    print(f'Estimated RF max: {est_rf_max:.2f} Hz')
+    print(f'{RF_PI2_DURATION}us pulse, pi/2 flip maxed at {rf_max_val * cfg.RF_MAX / est_rf_max:.4f} fractional power')
+
+    if plot:
+            fig, axs = plt.subplots(2, 1, constrained_layout=True)
+            fig.suptitle(f'Iteration {it + 1}/{iterations}')
+            axs[0].plot(np.abs(rx_arr).T)
+            axs[0].set_title('Stacked signals -- Magnitude')
+            axs[1].plot(rf_amp_vals, peak_max_arr)
+            axs[1].plot(rf_max_val, peak_max_arr[max_ind], 'x')
+            if first_max:
+                axs[1].set_title(f'Max signals -- first max at {rf_max_val:.4f}')
+            else:
+                axs[1].set_title(f'Max signals -- global max at {rf_max_val:.4f}')
+            plt.ioff()
+            plt.show()
+    
+    return est_rf_max
+
+
+    # assert(focus_factor > 1)
+    # from marcos_client.examples import spin_echo_train
+
+    # # Run the experiment, hardcoded from marcos_client/examples
+    # rf_min, rf_max = 0, 1
+    # rf_max_val = 0
+    # for it in range(iterations):
+    #     rf_amp_vals = np.linspace(rf_min, rf_max, num=points, endpoint=True)
+    #     rxd_list = []
+    #     for i in range(points):
+    #         rxd_list.append(spin_echo_train(
+    #             larmor_freq=larmor_freq,
+    #             rf_scaling=rf_amp_vals[i],
+    #             echo_count=2,
+    #             rx_period=rx_period,
+    #             echo_duration=echo_duration,
+    #             readout_duration=readout_duration,
+    #             RF_PI2_DURATION=RF_PI2_DURATION
+    #             ))
+    #         time.sleep(2)
+        
+    #     rx_arr = np.reshape(rxd_list, (points, 2, -1))[:, 1, :]
+    #     peak_max_arr = np.max(np.abs(rx_arr), axis=1, keepdims=False)
+    #     rf_max_val = rf_amp_vals[np.argmax(peak_max_arr)]
+
+    #     if plot:
+    #         fig, axs = plt.subplots(2, 1, constrained_layout=True)
+    #         fig.suptitle(f'Iteration {it + 1}/{iterations}')
+    #         axs[0].plot(np.abs(rx_arr).T)
+    #         axs[0].set_title('Stacked signals -- Magnitude')
+    #         axs[1].plot(rf_amp_vals, peak_max_arr)
+    #         axs[1].set_title(f'Maximum signals -- max at {rf_max_val}')
+    #         plt.ion()
+    #         plt.show()
+    #         plt.draw()
+    #         plt.pause(0.001)
+    #     print(f'Iteration {it + 1}/{iterations} --- Max: {np.max(peak_max_arr)} at {rf_max_val:.4f}')
+    #     rf_min = max(0, rf_max_val - focus_factor**(-1 * it - 2))
+    #     rf_max = min(1, rf_max_val + focus_factor**(-1 * it - 2))
+    #     if plot: plt.ioff()
+
+    # print(f'{RF_PI2_DURATION}us pulse, 90 degree maxed at {rf_max_val:.4f}')
+    # print(f'Estimated RF max: {0.25 / (RF_PI2_DURATION * rf_max_val) * 1e6:.2f} Hz')
+    # return 0.25 / (RF_PI2_DURATION * rf_max_val) * 1e6
+
+def grad_max_cal(channel='x', phantom_width=10, larmor_freq=cfg.LARMOR_FREQ, calibration_power=0.8,
+                 trs=3, tr_spacing=2e6, echo_duration=5000, 
+                 readout_duration=500, rx_period=25/3,
+                 RF_PI2_DURATION=50, rf_max=cfg.RF_MAX, 
+                 trap_ramp_duration=50, trap_ramp_pts=5,
                  plot=True):
     """
     Calibrate gradient maximum using a phantom of known width
@@ -173,7 +321,7 @@ def grad_max_cal(phantom_width=10, larmor_freq=cfg.LARMOR_FREQ, calibration_powe
         readout_duration (float): [us] Readout window around echo peak
         rx_period (float): [us] Readout dwell time
         gradient_overshoot (float): [us] Amount of time to hold the readout gradient on for longer than readout_duration
-        rf_pi2_duration (float): [us] RF pi/2 pulse duration
+        RF_PI2_DURATION (float): [us] RF pi/2 pulse duration
         rf_max (float): [Hz] System RF max
         plot (bool): Default True, plot final data
 
@@ -181,23 +329,91 @@ def grad_max_cal(phantom_width=10, larmor_freq=cfg.LARMOR_FREQ, calibration_powe
         float: Estimated gradient max in Hz/m
     """
 
-    from marcos_client.examples import turbo_spin_echo
+    if channel not in {'x', 'y', 'z'}:
+        print(f"Invalid channel '{channel}' -- Expected 'x', 'y', or 'z'")
+        return -1
 
-    rf_scaling = .25 / (rf_max * 1e-6 * rf_pi2_duration)
+    rf_scaling = .25 / (rf_max * 1e-6 * RF_PI2_DURATION)
+    readout_duration = readout_duration
+    init_gpa=True
+    rf_pi_duration = 2 * RF_PI2_DURATION
 
-    # Run the experiment, hardcoded from marcos_client/examples
-    rxd = turbo_spin_echo(lo_freq=larmor_freq,
-        trs=trs, echos_per_tr=1,
-        rf_amp=rf_scaling,
-        rx_period=rx_period,
-        echo_duration=echo_duration,
-        readout_duration=readout_duration,
-        readout_amp=calibration_power,
-        readout_grad_duration=readout_duration + gradient_overshoot,
-        phase_start_amp=0,
-        slice_start_amp=0,
-        tr_pause_duration=tr_spacing,
-        init_gpa=True, plot_rx=False)
+    def rf_wf(tstart, echo_idx):
+        pi2_phase = 1 # x
+        pi_phase = 1j # y
+        if echo_idx == 0:
+            # do pi/2 pulse, then start pi pulse
+            return np.array([tstart + (echo_duration - RF_PI2_DURATION)/2, tstart + (echo_duration + RF_PI2_DURATION)/2,
+                             tstart + echo_duration - rf_pi_duration/2]), np.array([pi2_phase, 0, pi_phase]) * rf_scaling
+        else:
+            # finish RF pulse
+            return np.array([tstart + rf_pi_duration/2]), np.array([0])
+
+    def tx_gate_wf(tstart, echo_idx):
+        tx_gate_pre = 2 # us, time to start the TX gate before each RF pulse begins
+        tx_gate_post = 1 # us, time to keep the TX gate on after an RF pulse ends
+
+        if echo_idx == 0:
+            # do pi/2 pulse, then start pi pulse
+            return np.array([tstart + (echo_duration - RF_PI2_DURATION)/2 - tx_gate_pre,
+                             tstart + (echo_duration + RF_PI2_DURATION)/2 + tx_gate_post,
+                             tstart + echo_duration - rf_pi_duration/2 - tx_gate_pre]), \
+                             np.array([1, 0, 1])
+        else:
+            # finish pi pulse
+            return np.array([tstart + rf_pi_duration/2 + tx_gate_post]), np.array([0])
+
+    def readout_grad_wf(tstart, echo_idx):
+        if echo_idx == 0:
+            return trap_cent(tstart + echo_duration*3/4, calibration_power, readout_duration/2,
+                             trap_ramp_duration, trap_ramp_pts)
+        else:
+            return trap_cent(tstart + echo_duration/2, calibration_power, readout_duration,
+                             trap_ramp_duration, trap_ramp_pts)
+
+    def readout_wf(tstart, echo_idx):
+        if echo_idx == 0:
+            return np.array([tstart]), np.array([0]) # keep on zero for pi2
+        else:
+            return np.array([tstart + (echo_duration - readout_duration)/2, tstart + (echo_duration + readout_duration)/2 ]), np.array([1, 0])
+
+    expt = ex.Experiment(lo_freq=larmor_freq, rx_t=rx_period, init_gpa=init_gpa, gpa_fhdo_offset_time=(1 / 0.2 / 3.1))
+    # gpa_fhdo_offset_time in microseconds; offset between channels to
+    # avoid parallel updates (default update rate is 0.2 Msps, so
+    # 1/0.2 = 5us, 5 / 3.1 gives the offset between channels; extra
+    # 0.1 for a safety margin))
+
+    global_t = 20 # start the first TR at 20us
+
+    for _ in range(trs):
+        for echo in range(2):
+            tx_t, tx_a = rf_wf(global_t, echo)
+            tx_gate_t, tx_gate_a = tx_gate_wf(global_t, echo)
+            readout_t, readout_a = readout_wf(global_t, echo)
+            rx_gate_t, rx_gate_a = readout_wf(global_t, echo)
+
+            readout_grad_t, readout_grad_a = readout_grad_wf(global_t, echo)
+            global_t += echo_duration
+
+            expt.add_flodict({
+                'tx0': (tx_t, tx_a),
+                'tx1': (tx_t, tx_a),
+                'grad_vx': (readout_grad_t, readout_grad_a * (channel == 'x')),
+                'grad_vy': (readout_grad_t, readout_grad_a * (channel == 'y')),
+                'grad_vz': (readout_grad_t, readout_grad_a * (channel == 'z')),
+                'rx0_en': (readout_t, readout_a),
+                'rx1_en': (readout_t, readout_a),
+                'tx_gate': (tx_gate_t, tx_gate_a),
+                'rx_gate': (rx_gate_t, rx_gate_a),
+            })
+
+        global_t += tr_spacing
+
+    rx, _ = expt.run()
+    expt.close_server(True)
+    expt._s.close() # close socket
+
+    rxd = rx['rx0']
 
     rx_arr = np.reshape(rxd, (trs, -1))
     rx_arr_av = np.average(rx_arr, axis=0)
@@ -207,12 +423,16 @@ def grad_max_cal(phantom_width=10, larmor_freq=cfg.LARMOR_FREQ, calibration_powe
 
     peaks, _ = sig.find_peaks(np.abs(rx_fft), width=2)
     peak_results = sig.peak_widths(np.abs(rx_fft), peaks, rel_height=0.95)
-    fwhm = peak_results[0][0]
+    max_peak = np.argmax(peak_results[0])
+    fwhm = peak_results[0][max_peak]
 
     fft_scale = 1e6/(rx_period * rx_fft.shape[0]) # [Hz/index] Need to know what the distance on x is
 
     fft_bw = 1/(rx_period)
     fft_x = np.linspace(larmor_freq - fft_bw/2, larmor_freq + fft_bw/2, num=rx_fft.shape[0])
+
+    hline = np.array([peak_results[1][max_peak], peak_results[2][max_peak], peak_results[3][max_peak]])
+    hline[1:] = hline[1:] * (fft_x[1] - fft_x[0]) + fft_x[0]
 
     grad_max = fwhm * fft_scale / (phantom_width * 1e-3 * calibration_power) # [Hz/m]
     print(f'Gradient value: {(grad_max * calibration_power * 1e-3):.4f} KHz/m')
@@ -221,21 +441,43 @@ def grad_max_cal(phantom_width=10, larmor_freq=cfg.LARMOR_FREQ, calibration_powe
     if plot:
         _, axs = plt.subplots(4, 1, constrained_layout=True)
         axs[0].plot(np.real(rxd))
-        axs[0].set_title('Concatenated signal -- Real')
+        axs[0].set_title('Concatenated signals -- Real, Magnitude')
+
         axs[1].plot(np.abs(rxd))
-        axs[1].set_title('Concatenated signal -- Magnitude')
-        axs[2].plot(np.abs(rxd_av))
+        axs[1].sharex(axs[0])
+        axs[1].set_xlabel('Samples')
+
+        axs[2].plot(np.arange(0, len(rxd_av)) * rx_period, np.abs(rxd_av))
         axs[2].set_title('Averaged TRs -- Magnitude')
+        axs[2].set_xlabel('Time (us)')
+
         axs[3].plot(fft_x, np.abs(rx_fft))
-        axs[3].hlines(*peak_results[1:], 'r')
+        axs[3].hlines(*hline, 'r')
         axs[3].set_title(f'FFT -- Magnitude ({(grad_max*1e-3):.4f} KHz/m gradient max)')
+        axs[3].set_xlabel('Frequency (MHz)')
         plt.show()
     
     return grad_max
 
 if __name__ == "__main__":
-    if len(sys.argv) == 2:
-        larmor_cal(iterations=int(sys.argv[1]), plot=True)
-    else:
-        larmor_cal(iterations=8, plot=True)
+    if len(sys.argv) >= 2:
+        command = sys.argv[1]
+
+        if command == 'larmor':
+            if len(sys.argv) == 3:
+                larmor_cal(plot=True, echo_count=int(sys.argv[2]))
+            else:
+                larmor_cal(plot=True)
+        elif command == 'larmor_w':
+            start_freq = larmor_step_search()
+            larmor_cal(larmor_start=start_freq, plot=True)
+        elif command == 'rf':
+            rf_max_cal()
+        elif command == 'grad':
+            if len(sys.argv) == 3:
+                grad_max_cal(channel=sys.argv[2])
+            else:
+                grad_max_cal()
+        else:
+            print('Enter a calibration command from: [larmor, larmor_w, rf, grad]')
     
