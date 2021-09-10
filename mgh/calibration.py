@@ -480,4 +480,6 @@ if __name__ == "__main__":
                 grad_max_cal()
         else:
             print('Enter a calibration command from: [larmor, larmor_w, rf, grad]')
+    else:
+        print('Enter a calibration command from: [larmor, larmor_w, rf, grad]')
     

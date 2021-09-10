@@ -183,16 +183,30 @@ def plot_sinogram_2d(rxd, trs):
 
 if __name__ == "__main__":
     # Maybe clean up
-    trs = 128
-    if len(sys.argv) == 3:
-        seq_file = cfg.SEQ_PATH + sys.argv[1]
-        dimension = int(sys.argv[2])
+    if len(sys.argv) >= 2:
+        command = sys.argv[1]
+        if command == 'pulseq':
+            if len(sys.argv) == 3:
+                seq_file = cfg.SEQ_PATH + sys.argv[2]
+                run_pulseq(seq_file, save_np=True, save_mat=True)
+            else:
+                print('"pulseq" takes one .seq filename as an argument (just the filename, make sure it\'s in your seq_files path!)')
+        else:
+            print('Enter a script command from: [pulseq]')
     else:
-        seq_file = cfg.SEQ_PATH + 'se.seq'
-        dimension = 1
-    print(f'Running {seq_file}')
-    rxd, rx_t = run_pulseq(seq_file, save_np=True, save_mat=True)
-    if dimension == 1:
-        plot_signal_1d(rxd, 1, rx_t)
-    elif dimension == 2:
-        plot_signal_2d(rxd, trs, rx_t)
+        print('Enter a script command from: [pulseq]')
+
+
+    # trs = 128
+    # if len(sys.argv) == 3:
+    #     seq_file = cfg.SEQ_PATH + sys.argv[1]
+    #     dimension = int(sys.argv[2])
+    # else:
+    #     seq_file = cfg.SEQ_PATH + 'se.seq'
+    #     dimension = 1
+    # print(f'Running {seq_file}')
+    # rxd, rx_t = run_pulseq(seq_file, save_np=True, save_mat=True)
+    # if dimension == 1:
+    #     plot_signal_1d(rxd, 1, rx_t)
+    # elif dimension == 2:
+    #     plot_signal_2d(rxd, trs, rx_t)
