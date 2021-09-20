@@ -34,6 +34,7 @@ def larmor_step_search(step_search_center=cfg.LARMOR_FREQ, steps=15, step_bw_MHz
     time.sleep(delay_s)
 
     for i in range(1, steps):
+        print(f'{swept_freqs[i]:.4f} MHz')
         rx_arr[:,i], _ = run_pulseq(seq_file, rf_center=swept_freqs[i],
             tx_t=1, grad_t=10, tx_warmup=100,
             shim_x=shim_x, shim_y=shim_y, shim_z=shim_z,
@@ -79,13 +80,14 @@ def larmor_cal(larmor_start=cfg.LARMOR_FREQ, iterations=10, delay_s=1, echo_coun
                 grad_cal=False, save_np=False, save_mat=False, save_msgs=False)
 
         rxd = np.average(np.reshape(rxd, (1, -1)), axis=0)
+        rx_count = rxd.shape[0] // echo_count
 
         # Split echos for FFT
         rx_arr = np.reshape(rxd, (echo_count, -1))
         avgs = np.zeros(echo_count)
         stds = np.zeros(echo_count)
         for echo_n in range(echo_count):
-            dphis = np.ediff1d(np.angle(rx_arr[echo_n, :]))
+            dphis = np.ediff1d(np.angle(rx_arr[echo_n, rx_count//3:2 * (rx_count//3)]))
             stds[echo_n] = np.std(dphis)
             ordered_dphis = dphis[np.argsort(np.abs(dphis))]
             large_change_ind = np.argmax(np.abs(np.ediff1d(np.abs(ordered_dphis))))
@@ -117,7 +119,6 @@ def larmor_cal(larmor_start=cfg.LARMOR_FREQ, iterations=10, delay_s=1, echo_coun
 
     print(f'Calibrated Larmor frequency: {larmor_freq:.6f} MHz')
     if std >= 1:
-        
         print(f"Didn't converge, try {fft_x[np.argmax(rx_fft[:, 0])]:.6f}")
 
     if plot:
@@ -136,7 +137,7 @@ def larmor_cal(larmor_start=cfg.LARMOR_FREQ, iterations=10, delay_s=1, echo_coun
         axs[1].sharex(axs[0])
         axs[1].set_xlabel('Samples')
 
-        axs[2].plot(np.arange(0, rx_arr.shape[0]) * rx_t, np.angle(rx_arr))
+        axs[2].plot(np.arange(0, rx_count) * rx_t, np.angle(rx_arr))
         axs[2].set_title('Stacked signals -- Phase')
         axs[2].set_xlabel('Time (us)')
 

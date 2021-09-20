@@ -143,7 +143,7 @@ def plot_signal_1d(rxd, trs, rx_period, larmor_freq=cfg.LARMOR_FREQ):
     #     axs[3].set_title('Stacked signals -- FFT')
     plt.show()
 
-def plot_signal_2d(rxd, trs, rx_t, raw=False):
+def plot_signal_2d(rxd, trs, raw=False):
     rx_arr = np.reshape(rxd, (trs, -1))
     rx_fft = np.fft.fftshift(np.fft.fft2(np.fft.fftshift(rx_arr)))
 
@@ -191,6 +191,14 @@ if __name__ == "__main__":
                 run_pulseq(seq_file, save_np=True, save_mat=True)
             else:
                 print('"pulseq" takes one .seq filename as an argument (just the filename, make sure it\'s in your seq_files path!)')
+        elif command =='plot2d':
+            if len(sys.argv) == 4:
+                rxd = np.load(cfg.DATA_PATH + sys.argv[2])
+                tr_count = int(sys.argv[3])
+                plot_signal_2d(rxd, tr_count)
+            else:
+                print('Format arguments as "plot2d [filename] [tr count]"')
+
         else:
             print('Enter a script command from: [pulseq]')
     else:
