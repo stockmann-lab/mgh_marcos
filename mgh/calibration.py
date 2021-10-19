@@ -11,42 +11,64 @@ import sys
 import mgh.config as cfg # pylint: disable=import-error
 import marcos_client.experiment as ex # pylint: disable=import-error
 from marcos_client.examples import trap_cent # pylint: disable=import-error
-from mgh.scripts import run_pulseq # pylint: disable=import-error
-
+import mgh.scripts as scr # pylint: disable=import-error
 
 def larmor_step_search(step_search_center=cfg.LARMOR_FREQ, steps=15, step_bw_MHz=5e-3, plot=False, 
-    shim_x=cfg.SHIM_X, shim_y=cfg.SHIM_Y, shim_z=cfg.SHIM_Z, delay_s=1):
+    shim_x=cfg.SHIM_X, shim_y=cfg.SHIM_Y, shim_z=cfg.SHIM_Z, delay_s=1, gui_test=False):
+    """
+    Run a stepped search through a range of frequencies to find the highest signal response
+    Used to find a starting point, not for precision
 
+    Args:
+        step_search_center (float): [MHz] Center for search, defaults to config LARMOR_FREQ
+        steps (int): Number of search steps
+        step_bw_MHz (float): [MHz] Distance in MHz between each step
+        plot (bool): Default False, plot final data
+        shim_x, shim_y, shim_z (float): Shim value, defaults to config SHIM_ values, must be less than 1 magnitude
+        delay_s (float): Delay between readings in seconds
+        gui_test (bool): Default False, takes dummy data instead of actual data for GUI testing away from scanner
+
+    Returns:
+        float: Estimated larmor frequency in MHz
+        dict: Dictionary of data
+    """
+
+    # Pick out the frequencies to run through
     swept_freqs = np.linspace(step_search_center - ((steps-1)/2 * step_bw_MHz),
                      step_search_center + ((steps-1)/2 * step_bw_MHz), num=steps)
     larmor_freq = swept_freqs[0]
+    # Set the sequence file for a single spin echo
     seq_file = cfg.MGH_PATH + 'cal_seq_files/se_1.seq'
 
     # Run the experiment once to prep array
-    rxd, rx_t = run_pulseq(seq_file, rf_center=larmor_freq,
+    rxd, rx_t = scr.run_pulseq(seq_file, rf_center=larmor_freq,
             tx_t=1, grad_t=10, tx_warmup=100,
             shim_x=shim_x, shim_y=shim_y, shim_z=shim_z,
-            grad_cal=False, save_np=False, save_mat=False, save_msgs=False)
+            grad_cal=False, save_np=False, save_mat=False, save_msgs=False, gui_test=gui_test)
 
+    # Create array for storing data
     rx_arr = np.zeros((rxd.shape[0], steps), dtype=np.cdouble)
     rx_arr[:,0] = rxd
 
+    # Pause for spin recovery
     time.sleep(delay_s)
 
+    # Repeat for each frequency after the first
     for i in range(1, steps):
         print(f'{swept_freqs[i]:.4f} MHz')
-        rx_arr[:,i], _ = run_pulseq(seq_file, rf_center=swept_freqs[i],
+        rx_arr[:,i], _ = scr.run_pulseq(seq_file, rf_center=swept_freqs[i],
             tx_t=1, grad_t=10, tx_warmup=100,
             shim_x=shim_x, shim_y=shim_y, shim_z=shim_z,
-            grad_cal=False, save_np=False, save_mat=False, save_msgs=False)
+            grad_cal=False, save_np=False, save_mat=False, save_msgs=False, gui_test=gui_test)
 
         time.sleep(delay_s)
 
+    # Find the frequency data with the largest maximum absolute value
     max_ind = np.argmax(np.max(np.abs(rx_arr), axis=0, keepdims=False))
     max_freq = swept_freqs[max_ind]
     print(f'{max_freq:.4f} MHz')
 
-    
+    # Plot figure
     if plot:
         fig, axs = plt.subplots(2, 1, constrained_layout=True)
         fig.suptitle(f'{steps}-step search around {step_search_center:.4f} MHz')
@@ -57,35 +79,69 @@ def larmor_step_search(step_search_center=cfg.LARMOR_FREQ, steps=15, step_bw_MHz
         axs[1].set_title('Concatenated signal -- Magnitude')
         plt.show()
 
-    return max_freq
+    # Output of useful data for visualization
+    data_dict = {'rx_arr': rx_arr,
+            'rx_t': rx_t,
+            'larmor_freq': larmor_freq
+            }
+
+    # Return the frequency that worked the best
+    return max_freq, data_dict
 
 def larmor_cal(larmor_start=cfg.LARMOR_FREQ, iterations=10, delay_s=1, echo_count=2,
-    step_size=0.6, plot=False, shim_x=cfg.SHIM_X, shim_y=cfg.SHIM_Y, shim_z=cfg.SHIM_Z):
+    step_size=0.6, plot=False, shim_x=cfg.SHIM_X, shim_y=cfg.SHIM_Y, shim_z=cfg.SHIM_Z, gui_test=False):
+    """
+    Run a gradient descent search from a starting larmor frequency, optimizing to find the frequency
+    with the most constant phase.  
 
+    Args:
+        larmor_start (float): [MHz] Starting frequency for search, defaults to config LARMOR_FREQ
+        iterations (int): Default 10, number of iterations in search
+        delay_s (float): Default 1, delay in seconds for spin recovery
+        echo_count (int): Default 2, must be 1-6. Number of spins in echo train.
+        step_size (float): Scaling parameter for gradient search -- found success with 0.6, must be positive
+        plot (bool): Default False, plot final data
+        shim_x, shim_y, shim_z (float): Shim value, defaults to config SHIM_ values, must be less than 1 magnitude
+        gui_test (bool): Default False, takes dummy data instead of actual data for GUI testing away from scanner
+
+    Returns:
+        float: Estimated larmor frequency in MHz
+        dict: Dictionary of data
+    """
+
+    # Set larmor frequency for the first iteration
     larmor_freq = larmor_start
 
+    # Echo count needs to be one that matches a seq file in saved calibration files
     if echo_count not in {1, 2, 3, 4, 5, 6}:
         print('Echo count needs to be an integer between 1 and 6')
         return -1
     
+    # Load saved spin echo train seq file that has the right number of echoes
     seq_file = cfg.MGH_PATH + f'cal_seq_files/se_{echo_count}.seq'
 
+    # Search for the right number of iterations
     for i in range(iterations):
         print(f'Iteration {i + 1}/{iterations}: {larmor_freq:.5f} MHz')
  
         # Run the experiment from seq file
-        rxd, rx_t = run_pulseq(seq_file, rf_center=larmor_freq,
+        rxd, rx_t = scr.run_pulseq(seq_file, rf_center=larmor_freq,
                 tx_t=1, grad_t=10, tx_warmup=100,
                 shim_x=shim_x, shim_y=shim_y, shim_z=shim_z,
-                grad_cal=False, save_np=False, save_mat=False, save_msgs=False)
-
-        rxd = np.average(np.reshape(rxd, (1, -1)), axis=0)
-        rx_count = rxd.shape[0] // echo_count
+                grad_cal=False, save_np=False, save_mat=False, save_msgs=False, gui_test=gui_test)
 
         # Split echos for FFT
         rx_arr = np.reshape(rxd, (echo_count, -1))
+        rx_count = rx_arr.shape[0]
+
+        # Set up average and standard deviation arrays
         avgs = np.zeros(echo_count)
         stds = np.zeros(echo_count)
+
+        # For each echo, calculate the average slope of the phase plot by:
+        #   - Calculating the difference between every point in the middle third of the echo data
+        #   - Cutting out the largest differences (representing phase wraps) by removing all changes above a certain size
+        #   - Averaging from there
         for echo_n in range(echo_count):
             dphis = np.ediff1d(np.angle(rx_arr[echo_n, rx_count//3:2 * (rx_count//3)]))
             stds[echo_n] = np.std(dphis)
@@ -94,33 +150,39 @@ def larmor_cal(larmor_start=cfg.LARMOR_FREQ, iterations=10, delay_s=1, echo_coun
             dphi_vals = ordered_dphis[:large_change_ind-1]
             avgs[echo_n] = np.mean(dphi_vals)
 
+        # Find the average slopes across echoes, find expected change in larmor frequency from there
         dphi = np.mean(avgs)
         dw = dphi / (rx_t * np.pi)
         std = np.mean(stds)
         print(f'  Estimated frequency offset: {dw:.6f} MHz')
         print(f'  Spread (std): {std:.6f}')
 
+        # Update larmor frequency
         larmor_freq += dw * step_size
 
+        # Delay for spin recovery
         time.sleep(delay_s)
 
     # Run once more to check final frequency
-    rxd, rx_t = run_pulseq(seq_file, rf_center=larmor_freq,
+    rxd, rx_t = scr.run_pulseq(seq_file, rf_center=larmor_freq,
             tx_t=1, grad_t=1, tx_warmup=100,
             shim_x = cfg.SHIM_X, shim_y = cfg.SHIM_Y, shim_z = cfg.SHIM_Z,
-            grad_cal=False, save_np=False, save_mat=False, save_msgs=False)
+            grad_cal=False, save_np=False, save_mat=False, save_msgs=False, gui_test=gui_test)
 
     # Split echos for FFT
     rx_arr = np.reshape(rxd, (echo_count, -1)).T
     rx_fft = np.fft.fftshift(np.fft.fft(rx_arr, axis=0), axes=(0,))
 
+    # Set up x-axis for FFT data
     fft_bw = 1/(rx_t)
     fft_x = np.linspace(larmor_freq - fft_bw/2, larmor_freq + fft_bw/2, num=rx_fft.shape[0])
 
+    # Announce results
     print(f'Calibrated Larmor frequency: {larmor_freq:.6f} MHz')
     if std >= 1:
         print(f"Didn't converge, try {fft_x[np.argmax(rx_fft[:, 0])]:.6f}")
 
+    # Plot if needed
     if plot:
         fig, axs = plt.subplots(5, 1, constrained_layout=True)
 
@@ -150,73 +212,95 @@ def larmor_cal(larmor_start=cfg.LARMOR_FREQ, iterations=10, delay_s=1, echo_coun
         axs[4].set_xlabel('Frequency (MHz)')
         plt.show()
 
-    return larmor_freq
+    # Data saved for visualization
+    data_dict = {'rxd': rxd,
+                'rx_t': rx_t,
+                'trs': echo_count,
+                'larmor_freq': larmor_freq
+                }
 
-# TODO document
-def rf_max_cal(larmor_freq=cfg.LARMOR_FREQ, points=20, iterations=2, focus_factor=2, 
+    return larmor_freq, data_dict
+
+def rf_max_cal(larmor_freq=cfg.LARMOR_FREQ, points=20, iterations=2, zoom_factor=2, 
     shim_x=cfg.SHIM_X, shim_y=cfg.SHIM_Y, shim_z=cfg.SHIM_Z,
-    plot=True, tr_spacing=2, force_tr=False, first_max=False, smooth=True):
+    tr_spacing=2, force_tr=False, first_max=False, smooth=True, plot=True, gui_test=False):
     """
     Calibrate RF maximum for pi/2 flip angle
 
     Args:
         larmor_freq (float): [MHz] Scanner larmor frequency
-        tr_spacing (float): [us] Time between repetitions
-        echo_duration (float): [us] Time between echo peaks
-        readout_duration (float): [us] Readout window around echo peak
-        rx_period (float): [us] Readout dwell time
-        rf_max (float): [Hz] System RF max
-        plot (bool): Default True, plot final data
         points (int): Points to plot per iteration
         iterations (int): Iterations to focus in
-        focus_factor (float): About to zoom in by each iteration -- must be greater than 1
-
+        zoom_factor (float): About to zoom in by each iteration -- must be greater than 1
+        shim_x, shim_y, shim_z (float): Shim value, defaults to config SHIM_ values, must be less than 1 magnitude
+        tr_spacing (float): [us] Time between repetitions
+        force_tr (bool): Default False, forces long TR times that would otherwise throw an error
+        first_max (bool): Default False, changes search to find the first maximum instead of global
+        smooth (bool): Default True, 3-wide running average on data
+        plot (bool): Default False, plot final data
+        
     Returns:
         float: Estimated RF max in Hz
+        dict: Dictionary of data
     """
+    # Select seq file for 2 spin echoes
     seq_file = cfg.MGH_PATH + f'cal_seq_files/se_2.seq'
     RF_PI2_DURATION = 50 # us, hardcoded from sequence
 
+    # Make sure the TR units are right (in case someone puts in us rather than s)
     if (tr_spacing >= 30) and not force_tr:
         print('TR spacing is over 30 seconds! Set "force_tr" to True if this isn\'t a mistake. ')
         return -1
 
-    assert(focus_factor > 1)
+    # Needs to zoom in, not out
+    assert(zoom_factor > 1)
 
-    # Run the experiment, hardcoded from marcos_client/examples
+    # Cap search values to not hit system limits
     rf_min, rf_max = 0.05, 0.95
     rf_max_val = 0
+
+    # Run iterative search
     for it in range(iterations):
+        # Generate search range
         rf_amp_vals = np.linspace(rf_min, rf_max, num=points, endpoint=True)
         rxd_list = []
         print(f'Iteration {it + 1}/{iterations}: {points} points from {rf_min:.2f} to {rf_max:.2f} fractional RF power')
 
+        # Repeatedly run the experiment from seq file
         for i in range(points):
-            # Run the experiment from seq file
+            # Cap rf value if needed for system
             adj_rf_max = max(cfg.RF_MAX * cfg.RF_PI2_FRACTION, 5000) / rf_amp_vals[i]
-            rxd_list.append(run_pulseq(seq_file, rf_center=larmor_freq,
+            rxd, rx_t = scr.run_pulseq(seq_file, rf_center=larmor_freq,
                 tx_t=1, grad_t=10, tx_warmup=100,
                 shim_x=shim_x, shim_y=shim_y, shim_z=shim_z, rf_max=adj_rf_max,
-                grad_cal=False, save_np=False, save_mat=False, save_msgs=False)[0])
+                grad_cal=False, save_np=False, save_mat=False, save_msgs=False, gui_test=gui_test)
+            rxd_list.append(rxd)
             time.sleep(tr_spacing)
+
+            # Print progress
             if (i + 1) % 5 == 0:
                 print(f'Finished point {i + 1}/{points}...')
 
-        
+        # Reshape data to split echoes, ignore first echo due to measurement inconsistencies
         rx_arr = np.reshape(rxd_list, (points, 2, -1))[:, 1, :]
+        # Measure maximums of each measurement
         peak_max_arr = np.max(np.abs(rx_arr), axis=1, keepdims=False)
+
+        # Smooth out data with a rolling average
         if smooth:
             peak_max_arr = np.convolve(np.hstack((peak_max_arr[0:1], peak_max_arr[0:1], 
                                         peak_max_arr, peak_max_arr[-1:], peak_max_arr[-1:])),
                             [1/3, 1/3, 1/3])[3:-3]
+
+        # Pick out first maximum or absolute maximum
         dec_inds = np.where(peak_max_arr[:-1] >= peak_max_arr[1:])[0]
         if first_max and len(dec_inds) > 0:
             max_ind = dec_inds[0]
         else:
             max_ind = np.argmax(peak_max_arr)
-
         rf_max_val = rf_amp_vals[max_ind]
 
+        # Plot if asked
         if plot and it < iterations - 1:
             fig, axs = plt.subplots(2, 1, constrained_layout=True)
             fig.suptitle(f'Iteration {it + 1}/{iterations}')
@@ -233,14 +317,16 @@ def rf_max_cal(larmor_freq=cfg.LARMOR_FREQ, points=20, iterations=2, focus_facto
             plt.draw()
             plt.pause(0.001)
 
-        rf_min = max(0.05, rf_max_val - focus_factor**(-1 * (it + 1))/2)
-        rf_max = min(0.95, rf_max_val + focus_factor**(-1 * (it + 1))/2)
+        # Update range by zooming around max value
+        rf_min = max(0.05, rf_max_val - zoom_factor**(-1 * (it + 1))/2)
+        rf_max = min(0.95, rf_max_val + zoom_factor**(-1 * (it + 1))/2)
 
+    # Calculate RF max in Hz
     est_rf_max = 0.25 / (RF_PI2_DURATION * rf_max_val) * 1e6
-
     print(f'Estimated RF max: {est_rf_max:.2f} Hz')
     print(f'{RF_PI2_DURATION}us pulse, pi/2 flip maxed at {rf_max_val * cfg.RF_MAX / est_rf_max:.4f} fractional power')
 
+    # Plot if asked
     if plot:
             fig, axs = plt.subplots(2, 1, constrained_layout=True)
             fig.suptitle(f'Iteration {it + 1}/{iterations}')
@@ -255,54 +341,18 @@ def rf_max_cal(larmor_freq=cfg.LARMOR_FREQ, points=20, iterations=2, focus_facto
             plt.ioff()
             plt.show()
     
-    return est_rf_max
+    # Saved data for visualization
+    data_dict = {'rxd': rxd,
+                'rx_arr': rx_arr,
+                'rx_t': rx_t,
+                'rxd_list': rxd_list,
+                'rf_max': est_rf_max
+                }
 
+    return est_rf_max, data_dict
 
-    # assert(focus_factor > 1)
-    # from marcos_client.examples import spin_echo_train
-
-    # # Run the experiment, hardcoded from marcos_client/examples
-    # rf_min, rf_max = 0, 1
-    # rf_max_val = 0
-    # for it in range(iterations):
-    #     rf_amp_vals = np.linspace(rf_min, rf_max, num=points, endpoint=True)
-    #     rxd_list = []
-    #     for i in range(points):
-    #         rxd_list.append(spin_echo_train(
-    #             larmor_freq=larmor_freq,
-    #             rf_scaling=rf_amp_vals[i],
-    #             echo_count=2,
-    #             rx_period=rx_period,
-    #             echo_duration=echo_duration,
-    #             readout_duration=readout_duration,
-    #             RF_PI2_DURATION=RF_PI2_DURATION
-    #             ))
-    #         time.sleep(2)
-        
-    #     rx_arr = np.reshape(rxd_list, (points, 2, -1))[:, 1, :]
-    #     peak_max_arr = np.max(np.abs(rx_arr), axis=1, keepdims=False)
-    #     rf_max_val = rf_amp_vals[np.argmax(peak_max_arr)]
-
-    #     if plot:
-    #         fig, axs = plt.subplots(2, 1, constrained_layout=True)
-    #         fig.suptitle(f'Iteration {it + 1}/{iterations}')
-    #         axs[0].plot(np.abs(rx_arr).T)
-    #         axs[0].set_title('Stacked signals -- Magnitude')
-    #         axs[1].plot(rf_amp_vals, peak_max_arr)
-    #         axs[1].set_title(f'Maximum signals -- max at {rf_max_val}')
-    #         plt.ion()
-    #         plt.show()
-    #         plt.draw()
-    #         plt.pause(0.001)
-    #     print(f'Iteration {it + 1}/{iterations} --- Max: {np.max(peak_max_arr)} at {rf_max_val:.4f}')
-    #     rf_min = max(0, rf_max_val - focus_factor**(-1 * it - 2))
-    #     rf_max = min(1, rf_max_val + focus_factor**(-1 * it - 2))
-    #     if plot: plt.ioff()
-
-    # print(f'{RF_PI2_DURATION}us pulse, 90 degree maxed at {rf_max_val:.4f}')
-    # print(f'Estimated RF max: {0.25 / (RF_PI2_DURATION * rf_max_val) * 1e6:.2f} Hz')
-    # return 0.25 / (RF_PI2_DURATION * rf_max_val) * 1e6
-
+#TODO Add gui test functionality
+#TODO Comment
 def grad_max_cal(channel='x', phantom_width=10, larmor_freq=cfg.LARMOR_FREQ, calibration_power=0.8,
                  trs=3, tr_spacing=2e6, echo_duration=5000, 
                  readout_duration=500, rx_period=25/3,
@@ -324,7 +374,7 @@ def grad_max_cal(channel='x', phantom_width=10, larmor_freq=cfg.LARMOR_FREQ, cal
         gradient_overshoot (float): [us] Amount of time to hold the readout gradient on for longer than readout_duration
         RF_PI2_DURATION (float): [us] RF pi/2 pulse duration
         rf_max (float): [Hz] System RF max
-        plot (bool): Default True, plot final data
+        plot (bool): Default False, plot final data
 
     Returns:
         float: Estimated gradient max in Hz/m
@@ -466,19 +516,19 @@ if __name__ == "__main__":
 
         if command == 'larmor':
             if len(sys.argv) == 3:
-                larmor_cal(plot=True, echo_count=int(sys.argv[2]))
+                larmor_cal(plot=True, echo_count=int(sys.argv[2]), gui_test=True)
             else:
                 larmor_cal(plot=True)
         elif command == 'larmor_w':
             start_freq = larmor_step_search()
             larmor_cal(larmor_start=start_freq, plot=True)
         elif command == 'rf':
-            rf_max_cal()
+            rf_max_cal(plot=True)
         elif command == 'grad':
             if len(sys.argv) == 3:
-                grad_max_cal(channel=sys.argv[2])
+                grad_max_cal(channel=sys.argv[2], plot=True)
             else:
-                grad_max_cal()
+                grad_max_cal(plot=True)
         else:
             print('Enter a calibration command from: [larmor, larmor_w, rf, grad]')
     else:
