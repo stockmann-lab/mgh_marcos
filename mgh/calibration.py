@@ -144,7 +144,6 @@ def larmor_cal(larmor_start=cfg.LARMOR_FREQ, iterations=10, delay_s=1, echo_coun
         #   - Averaging from there
         for echo_n in range(echo_count):
             dphis = np.ediff1d(np.angle(rx_arr[echo_n, rx_count//3:2 * (rx_count//3)]))
-
             stds[echo_n] = np.std(dphis)
             ordered_dphis = dphis[np.argsort(np.abs(dphis))]
             large_change_ind = np.argmax(np.abs(np.ediff1d(np.abs(ordered_dphis))))
@@ -519,7 +518,7 @@ if __name__ == "__main__":
             if len(sys.argv) == 3:
                 larmor_cal(plot=True, echo_count=int(sys.argv[2]), gui_test=False)
             else:
-                larmor_cal(plot=True, gui_test=True)
+                larmor_cal(plot=True, gui_test=False)
         elif command == 'larmor_w':
             start_freq, _ = larmor_step_search(plot=True)
             larmor_cal(larmor_start=start_freq, plot=True)
