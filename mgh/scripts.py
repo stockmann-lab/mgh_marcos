@@ -239,7 +239,6 @@ def peak_width_1d(recon_dict):
                 }
     return out_dict
 
-
 def plot_signal_1d(recon_dict):
     # Example plotting function
     # Split echos for FFT

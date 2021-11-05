@@ -13,7 +13,7 @@ import marcos_client.experiment as ex # pylint: disable=import-error
 from marcos_client.examples import trap_cent # pylint: disable=import-error
 import mgh.scripts as scr # pylint: disable=import-error
 
-def larmor_step_search(step_search_center=cfg.LARMOR_FREQ, steps=15, step_bw_MHz=5e-3, plot=False, 
+def larmor_step_search(step_search_center=cfg.LARMOR_FREQ, steps=200, step_bw_MHz=5e-3, plot=False, 
     shim_x=cfg.SHIM_X, shim_y=cfg.SHIM_Y, shim_z=cfg.SHIM_Z, delay_s=1, gui_test=False):
     """
     Run a stepped search through a range of frequencies to find the highest signal response
@@ -66,7 +66,7 @@ def larmor_step_search(step_search_center=cfg.LARMOR_FREQ, steps=15, step_bw_MHz
     # Find the frequency data with the largest maximum absolute value
     max_ind = np.argmax(np.max(np.abs(rx_arr), axis=0, keepdims=False))
     max_freq = swept_freqs[max_ind]
-    print(f'{max_freq:.4f} MHz')
+    print(f'Max frequency: {max_freq:.4f} MHz')
 
     # Plot figure
     if plot:
@@ -132,7 +132,7 @@ def larmor_cal(larmor_start=cfg.LARMOR_FREQ, iterations=10, delay_s=1, echo_coun
 
         # Split echos for FFT
         rx_arr = np.reshape(rxd, (echo_count, -1))
-        rx_count = rx_arr.shape[0]
+        rx_count = rx_arr.shape[1]
 
         # Set up average and standard deviation arrays
         avgs = np.zeros(echo_count)
@@ -144,6 +144,7 @@ def larmor_cal(larmor_start=cfg.LARMOR_FREQ, iterations=10, delay_s=1, echo_coun
         #   - Averaging from there
         for echo_n in range(echo_count):
             dphis = np.ediff1d(np.angle(rx_arr[echo_n, rx_count//3:2 * (rx_count//3)]))
+
             stds[echo_n] = np.std(dphis)
             ordered_dphis = dphis[np.argsort(np.abs(dphis))]
             large_change_ind = np.argmax(np.abs(np.ediff1d(np.abs(ordered_dphis))))
@@ -516,11 +517,11 @@ if __name__ == "__main__":
 
         if command == 'larmor':
             if len(sys.argv) == 3:
-                larmor_cal(plot=True, echo_count=int(sys.argv[2]), gui_test=True)
+                larmor_cal(plot=True, echo_count=int(sys.argv[2]), gui_test=False)
             else:
-                larmor_cal(plot=True)
+                larmor_cal(plot=True, gui_test=True)
         elif command == 'larmor_w':
-            start_freq = larmor_step_search()
+            start_freq, _ = larmor_step_search(plot=True)
             larmor_cal(larmor_start=start_freq, plot=True)
         elif command == 'rf':
             rf_max_cal(plot=True)
