@@ -155,9 +155,36 @@ def shim(instructions, shim):
 
 def recon_0d(rxd, rx_t, trs=1, larmor_freq=cfg.LARMOR_FREQ):
     """
-    DOCUMENTATION TODO
+    Reconstruct FFT data, pass data out to plotting or saving programs
+
+    Args:
+        rxd (numpy.ndarray): Rx data array
+        rx_t (float): [us] Rx sample period
+        trs (int): Number of repetitions to split apart
+        larmor_freq (float): [MHz] Larmor frequency of data for FFT
+
+    Returns:
+        dict: Useful reconstructed data dictionary
     """
-    return
+    # Split echos for FFT
+    rx_arr = np.reshape(rxd, (trs, -1)).T
+    rx_fft = np.fft.fftshift(np.fft.fft(np.fft.fftshift(rx_arr, axes=(0,)), axis=0), axes=(0,))
+    x = np.linspace(0, rx_arr.shape[0] * rx_t * 1e-6, num=rx_arr.shape[0], endpoint=False)
+
+    fft_bw = 1/(rx_t)
+    fft_x = np.linspace(larmor_freq - fft_bw/2, larmor_freq + fft_bw/2, num=rx_fft.shape[0])
+    out_dict = {'dim': 0,
+                'rxd': rxd,
+                'rx_t': rx_t,
+                'trs': trs,
+                'rx_arr': rx_arr, 
+                'rx_fft': rx_fft,
+                'x': x,
+                'fft_bw': fft_bw,
+                'fft_x': fft_x,
+                'larmor_freq': larmor_freq
+                }
+    return out_dict
 
 def recon_1d(rxd, rx_t, trs=1, larmor_freq=cfg.LARMOR_FREQ):
     """
@@ -301,6 +328,6 @@ if __name__ == "__main__":
                 print('Format arguments as "plot2d [filename] [rx_t] [tr_count]"')
 
         else:
-            print('Enter a script command from: [pulseq]')
+            print('Enter a script command from: [pulseq, plot2d]')
     else:
-        print('Enter a script command from: [pulseq]')
+        print('Enter a script command from: [pulseq, plot2d]')

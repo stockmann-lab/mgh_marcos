@@ -13,7 +13,7 @@ import marcos_client.experiment as ex # pylint: disable=import-error
 from marcos_client.examples import trap_cent # pylint: disable=import-error
 import mgh.scripts as scr # pylint: disable=import-error
 
-def larmor_step_search(step_search_center=cfg.LARMOR_FREQ, steps=200, step_bw_MHz=5e-3, plot=False, 
+def larmor_step_search(step_search_center=cfg.LARMOR_FREQ, steps=100, step_bw_MHz=4e-3, plot=False, 
     shim_x=cfg.SHIM_X, shim_y=cfg.SHIM_Y, shim_z=cfg.SHIM_Z, delay_s=1, gui_test=False):
     """
     Run a stepped search through a range of frequencies to find the highest signal response
