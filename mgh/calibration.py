@@ -13,7 +13,7 @@ import marcos_client.experiment as ex # pylint: disable=import-error
 from marcos_client.examples import trap_cent # pylint: disable=import-error
 import mgh.scripts as scr # pylint: disable=import-error
 
-def larmor_step_search(step_search_center=cfg.LARMOR_FREQ, steps=30, step_bw_MHz=4e-3, plot=False, 
+def larmor_step_search(step_search_center=cfg.LARMOR_FREQ, steps=30, step_bw_MHz=5e-3, plot=False, 
     shim_x=cfg.SHIM_X, shim_y=cfg.SHIM_Y, shim_z=cfg.SHIM_Z, delay_s=1, gui_test=False):
     """
     Run a stepped search through a range of frequencies to find the highest signal response
@@ -509,6 +509,187 @@ def grad_max_cal(channel='x', phantom_width=10, larmor_freq=cfg.LARMOR_FREQ, cal
         plt.show()
     
     return grad_max
+
+def shim_cal(larmor_freq=cfg.LARMOR_FREQ, channel='x', range=0.01, shim_points=3, points=2, iterations=1, zoom_factor=2, 
+    shim_x=cfg.SHIM_X, shim_y=cfg.SHIM_Y, shim_z=cfg.SHIM_Z,
+    tr_spacing=2, force_tr=False, first_max=False, smooth=True, plot=True, gui_test=False):
+    """
+    Calibrate RF maximum for pi/2 flip angle
+    
+
+    Args:
+        larmor_freq (float): [MHz] Scanner larmor frequency
+        points (int): Points to plot per iteration
+        iterations (int): Iterations to focus in
+        zoom_factor (float): About to zoom in by each iteration -- must be greater than 1
+        shim_x, shim_y, shim_z (float): Shim value, defaults to config SHIM_ values, must be less than 1 magnitude
+        tr_spacing (float): [us] Time between repetitions
+        force_tr (bool): Default False, forces long TR times that would otherwise throw an error
+        first_max (bool): Default False, changes search to find the first maximum instead of global
+        smooth (bool): Default True, 3-wide running average on data
+        plot (bool): Default False, plot final data
+        
+    Returns:
+        float: Estimated RF max in Hz
+        dict: Dictionary of data
+    """
+
+    if channel not in {'x', 'y', 'z'}:
+        print(f"Invalid channel '{channel}' -- Expected 'x', 'y', or 'z'")
+        return -1
+
+
+    seq_file = cfg.MGH_PATH + f'cal_seq_files/spin_echo_1D_proj.seq'
+    rxd_list = []
+    if channel == 'x':
+        shim_centre=shim_x
+    elif channel == 'y':
+        shim_centre=shim_y
+    else:
+        shim_centre=shim_z
+
+    shim_range = np.linspace(-range/2, range/2, shim_points) + shim_centre
+    for shim in shim_range:          
+        if channel == 'x':
+            shim_x = shim
+        elif channel == 'y':
+            shim_y = shim
+        else:
+            shim_z = shim
+
+        rxd, rx_t = scr.run_pulseq(seq_file, rf_center=larmor_freq,
+            tx_t=1, grad_t=10, tx_warmup=100,
+            shim_x=shim_x, shim_y=shim_y, shim_z=shim_z,
+            grad_cal=False, save_np=False, save_mat=False, save_msgs=False, gui_test=gui_test)
+        rxd_list.append(rxd)
+        time.sleep(tr_spacing)
+
+    plt.subplot(2,1,1)
+    for rx in rxd_list:
+        rx_fft = np.fft.fftshift(np.fft.fft(np.fft.fftshift(rx)))
+        # plt.plot(np.abs(k))
+        plt.plot(np.abs(rx_fft))
+
+    plt.legend(shim_range)
+
+    plt.subplot(2,1,2)
+    for rx in rxd_list:
+        plt.plot(np.abs(rx))
+
+    plt.legend(shim_range)
+
+    plt.show()
+    # import pdb;pdb.set_trace()
+
+    if False:
+    
+        # Select seq file for 2 spin echoes
+        seq_file = cfg.MGH_PATH + f'cal_seq_files/spin_echo_1D_proj.seq'
+        RF_PI2_DURATION = 50 # us, hardcoded from sequence
+
+        # Make sure the TR units are right (in case someone puts in us rather than s)
+        if (tr_spacing >= 30) and not force_tr:
+            print('TR spacing is over 30 seconds! Set "force_tr" to True if this isn\'t a mistake. ')
+            return -1
+
+        # Needs to zoom in, not out
+        assert(zoom_factor > 1)
+
+        # Cap search values to not hit system limits
+        rf_min, rf_max = 0.05, 0.95
+        rf_max_val = 0
+
+        # Run iterative search
+        for it in range(iterations):
+            # Generate search range
+            rf_amp_vals = np.linspace(rf_min, rf_max, num=points, endpoint=True)
+            rxd_list = []
+            print(f'Iteration {it + 1}/{iterations}: {points} points from {rf_min:.2f} to {rf_max:.2f} fractional RF power')
+
+            # Repeatedly run the experiment from seq file
+            for i in range(points):
+                # Cap rf value if needed for system
+                adj_rf_max = max(cfg.RF_MAX * cfg.RF_PI2_FRACTION, 5000) / rf_amp_vals[i]
+                rxd, rx_t = scr.run_pulseq(seq_file, rf_center=larmor_freq,
+                    tx_t=1, grad_t=10, tx_warmup=100,
+                    shim_x=shim_x, shim_y=shim_y, shim_z=shim_z, rf_max=adj_rf_max,
+                    grad_cal=False, save_np=False, save_mat=False, save_msgs=False, gui_test=gui_test)
+                rxd_list.append(rxd)
+                time.sleep(tr_spacing)
+
+                # Print progress
+                if (i + 1) % 5 == 0:
+                    print(f'Finished point {i + 1}/{points}...')
+
+            # Reshape data to split echoes, ignore first echo due to measurement inconsistencies
+            rx_arr = np.reshape(rxd_list, (points, 2, -1))[:, 1, :]
+            # Measure maximums of each measurement
+            peak_max_arr = np.max(np.abs(rx_arr), axis=1, keepdims=False)
+
+            # Smooth out data with a rolling average
+            if smooth:
+                peak_max_arr = np.convolve(np.hstack((peak_max_arr[0:1], peak_max_arr[0:1], 
+                                            peak_max_arr, peak_max_arr[-1:], peak_max_arr[-1:])),
+                                [1/3, 1/3, 1/3])[3:-3]
+
+            # Pick out first maximum or absolute maximum
+            dec_inds = np.where(peak_max_arr[:-1] >= peak_max_arr[1:])[0]
+            if first_max and len(dec_inds) > 0:
+                max_ind = dec_inds[0]
+            else:
+                max_ind = np.argmax(peak_max_arr)
+            rf_max_val = rf_amp_vals[max_ind]
+
+            # Plot if asked
+            if plot and it < iterations - 1:
+                fig, axs = plt.subplots(2, 1, constrained_layout=True)
+                fig.suptitle(f'Iteration {it + 1}/{iterations}')
+                axs[0].plot(np.abs(rx_arr).T)
+                axs[0].set_title('Stacked signals -- Magnitude')
+                axs[1].plot(rf_amp_vals, peak_max_arr)
+                axs[1].plot(rf_max_val, peak_max_arr[max_ind], 'x')
+                if first_max:
+                    axs[1].set_title(f'Max signals -- first max at {rf_max_val:.4f}')
+                else:
+                    axs[1].set_title(f'Max signals -- global max at {rf_max_val:.4f}')
+                plt.ion()
+                plt.show()
+                plt.draw()
+                plt.pause(0.001)
+
+            # Update range by zooming around max value
+            rf_min = max(0.05, rf_max_val - zoom_factor**(-1 * (it + 1))/2)
+            rf_max = min(0.95, rf_max_val + zoom_factor**(-1 * (it + 1))/2)
+
+        # Calculate RF max in Hz
+        est_rf_max = 0.25 / (RF_PI2_DURATION * rf_max_val) * 1e6
+        print(f'Estimated RF max: {est_rf_max:.2f} Hz')
+        print(f'{RF_PI2_DURATION}us pulse, pi/2 flip maxed at {rf_max_val * cfg.RF_MAX / est_rf_max:.4f} fractional power')
+
+        # Plot if asked
+        if plot:
+                fig, axs = plt.subplots(2, 1, constrained_layout=True)
+                fig.suptitle(f'Iteration {it + 1}/{iterations}')
+                axs[0].plot(np.abs(rx_arr).T)
+                axs[0].set_title('Stacked signals -- Magnitude')
+                axs[1].plot(rf_amp_vals, peak_max_arr)
+                axs[1].plot(rf_max_val, peak_max_arr[max_ind], 'x')
+                if first_max:
+                    axs[1].set_title(f'Max signals -- first max at {rf_max_val:.4f}')
+                else:
+                    axs[1].set_title(f'Max signals -- global max at {rf_max_val:.4f}')
+                plt.ioff()
+                plt.show()
+        
+        # Saved data for visualization
+        data_dict = {'rxd': rxd,
+                    'rx_arr': rx_arr,
+                    'rx_t': rx_t,
+                    'rxd_list': rxd_list,
+                    'rf_max': est_rf_max
+                    }
+
+        return est_rf_max, data_dict
 
 if __name__ == "__main__":
     if len(sys.argv) >= 2:
