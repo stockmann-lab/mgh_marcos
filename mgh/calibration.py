@@ -701,7 +701,10 @@ if __name__ == "__main__":
             else:
                 larmor_cal(plot=True, gui_test=False)
         elif command == 'larmor_w':
-            start_freq, _ = larmor_step_search(plot=True)
+            if len(sys.argv) == 3:
+                start_freq, _ = larmor_step_search(plot=True, steps=int(sys.argv[2]))
+            else:
+                start_freq, _ = larmor_step_search(plot=True)
             larmor_cal(larmor_start=start_freq, plot=True)
         elif command == 'rf':
             rf_max_cal(plot=True)
