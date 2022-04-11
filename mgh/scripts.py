@@ -317,7 +317,7 @@ if __name__ == "__main__":
                 tr_count = int(sys.argv[3])
                 plot_signal_2d(recon_2d(rxd, tr_count, larmor_freq=cfg.LARMOR_FREQ))
             else:
-                print('Format arguments as "plot2d [filename] [tr count]"')
+                print('Format arguments as "plot2d [2d_data_filename] [tr count]"')
         elif command =='plot1d':
             if len(sys.argv) == 5:
                 rxd = np.load(cfg.DATA_PATH + sys.argv[2])
@@ -325,7 +325,15 @@ if __name__ == "__main__":
                 tr_count = int(sys.argv[4])
                 plot_signal_1d(recon_1d(rxd, rx_t, trs=tr_count))
             else:
-                print('Format arguments as "plot2d [filename] [rx_t] [tr_count]"')
+                print('Format arguments as "plot1d [1d_data_filename] [rx_t] [tr_count]"')
+        elif command =='plot_se':
+            if len(sys.argv) == 5:
+                rxd = np.load(cfg.DATA_PATH + sys.argv[2])
+                rx_t = float(sys.argv[3])
+                tr_count = int(sys.argv[4])
+                plot_signal_1d(recon_0d(rxd, rx_t, trs=tr_count))
+            else:
+                print('Format arguments as "plot_se [spin_echo_data_filename] [rx_t] [tr_count]"')
 
         else:
             print('Enter a script command from: [pulseq, plot2d]')
