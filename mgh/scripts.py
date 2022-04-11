@@ -337,6 +337,6 @@ if __name__ == "__main__":
                 print('Format arguments as "plot_se [spin_echo_data_filename] [rx_t] [tr_count]"')
 
         else:
-            print('Enter a script command from: [pulseq, plot2d]')
+            print('Enter a script command from: [pulseq, plot_se, plot1d, plot2d]')
     else:
-        print('Enter a script command from: [pulseq, plot2d]')
+        print('Enter a script command from: [pulseq, plot_se, plot1d, plot2d]')
