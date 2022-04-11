@@ -308,7 +308,8 @@ if __name__ == "__main__":
         if command == 'pulseq':
             if len(sys.argv) == 3:
                 seq_file = cfg.SEQ_PATH + sys.argv[2]
-                run_pulseq(seq_file, save_np=True, save_mat=True)
+                _, rx_t = run_pulseq(seq_file, save_np=True, save_mat=True)
+                print(f'rx_t = {rx_t}')
             else:
                 print('"pulseq" takes one .seq filename as an argument (just the filename, make sure it\'s in your seq_files path!)')
         elif command =='plot2d':
